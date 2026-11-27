@@ -92,6 +92,8 @@ import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.storage.service.StorageManager
+import tachiyomi.domain.vault.VaultSession
+import tachiyomi.domain.vault.service.VaultPreferences
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.widget.WidgetManager
 import timber.log.Timber
@@ -137,6 +139,9 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         }
 
         Injekt.importModule(PreferenceModule(this))
+        // KMK -->
+        VaultSession.init(Injekt.get<VaultPreferences>().isActive().get())
+        // KMK <--
         Injekt.importModule(AppModule(this))
         Injekt.importModule(DomainModule())
         // KMK -->
@@ -240,8 +245,26 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     private fun initializeMigrator() {
         val preferenceStore = Injekt.get<PreferenceStore>()
         // SY -->
-        val preference = preferenceStore.getInt(Preference.appStateKey("eh_last_version_code"), 0)
+        val preference = preferenceStore.getInt(
+            // KMK -->
+            // App-level data migrations touch the active database, so each profile tracks its
+            // own version. The vault starts at the standard version so historical migrations
+            // are not replayed against a brand-new vault database.
+            if (VaultSession.isActive) {
+                Preference.appStateKey(VaultSession.profileKey("eh_last_version_code"))
+            } else {
+                Preference.appStateKey("eh_last_version_code")
+            },
+            // KMK <--
+            0,
+        )
         // SY <--
+        // KMK -->
+        if (VaultSession.isActive && !preference.isSet()) {
+            val standardVersion = preferenceStore.getInt(Preference.appStateKey("eh_last_version_code"), 0)
+            preference.set(standardVersion.get())
+        }
+        // KMK <--
         logcat { "Migration from ${preference.get()} to ${BuildConfig.VERSION_CODE}" }
         Migrator.initialize(
             old = preference.get(),
@@ -316,6 +339,9 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     }
 
     override fun onStop(owner: LifecycleOwner) {
+        // KMK -->
+        VaultSession.onAppBackgrounded()
+        // KMK <--
         SecureActivityDelegate.onApplicationStopped()
 
         // AM (DISCORD) -->
