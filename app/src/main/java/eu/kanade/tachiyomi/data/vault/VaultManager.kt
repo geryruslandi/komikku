@@ -11,8 +11,10 @@ import androidx.preference.PreferenceManager
 import eu.kanade.tachiyomi.data.backup.create.BackupCreateJob
 import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
+import logcat.LogPriority
 import tachiyomi.core.common.Constants
 import tachiyomi.core.common.preference.Preference
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.vault.service.VaultPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -72,6 +74,7 @@ object VaultManager {
     }
 
     fun lock(context: Context) {
+        logcat(LogPriority.INFO, tag = "VaultManager") { "Switching to the standard library" }
         setPendingEnter(context, pending = false)
     }
 
