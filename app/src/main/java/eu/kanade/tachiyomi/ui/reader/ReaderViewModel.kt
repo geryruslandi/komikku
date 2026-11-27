@@ -823,21 +823,23 @@ class ReaderViewModel @JvmOverloads constructor(
 
         // KMK -->
         // Incognito mode records chapter read state and page progress; it only stops the history row.
-        if (page.status !is Page.State.Error) {
+        val isLastPage = readerChapter.pages?.lastIndex == pageIndex ||
+            // SY -->
+            (hasExtraPage && readerChapter.pages?.lastIndex?.minus(1) == page.index)
+        // SY <--
+        val decision = ReaderRecordingPolicy.decidePage(
+            incognitoMode = incognitoMode,
+            isErrorPage = page.status is Page.State.Error,
+            isLastPage = isLastPage,
+        )
+        if (decision.saveProgress) {
             // KMK <--
             readerChapter.chapter.last_page_read = pageIndex
 
-            if (readerChapter.pages?.lastIndex == pageIndex ||
-                // SY -->
-                (hasExtraPage && readerChapter.pages?.lastIndex?.minus(1) == page.index)
-                // SY <--
-            ) {
-                // KMK -->
-                // Mark the chapter read even in incognito mode, but keep the completion side effects
-                // (trackers, duplicate handling, delete-after-read, EH auto-mark) paused.
-                if (incognitoMode) {
-                    readerChapter.chapter.read = true
-                } else {
+            // KMK -->
+            if (decision.markRead) {
+                readerChapter.chapter.read = true
+                if (decision.runCompletionSideEffects) {
                     updateChapterProgressOnComplete(readerChapter)
                 }
                 // KMK <--
@@ -845,7 +847,7 @@ class ReaderViewModel @JvmOverloads constructor(
                 // SY -->
                 // Check if syncing is enabled for chapter read:
                 // KMK -->
-                if (!incognitoMode && isSyncEnabled && syncTriggerOpt.syncOnChapterRead) {
+                if (decision.triggerSync && isSyncEnabled && syncTriggerOpt.syncOnChapterRead) {
                     SyncDataJob.startNow(Injekt.get<Application>())
                 }
                 // KMK <--
@@ -863,7 +865,7 @@ class ReaderViewModel @JvmOverloads constructor(
             // SY -->
             // Check if syncing is enabled for chapter open:
             // KMK -->
-            if (!incognitoMode && isSyncEnabled && syncTriggerOpt.syncOnChapterOpen && readerChapter.chapter.last_page_read == 0) {
+            if (decision.triggerSync && isSyncEnabled && syncTriggerOpt.syncOnChapterOpen && readerChapter.chapter.last_page_read == 0) {
                 SyncDataJob.startNow(Injekt.get<Application>())
             }
             // KMK <--
@@ -920,7 +922,9 @@ class ReaderViewModel @JvmOverloads constructor(
      */
     suspend fun updateHistory() {
         getCurrentChapter()?.let { readerChapter ->
-            if (incognitoMode) return@let
+            // KMK -->
+            if (!ReaderRecordingPolicy.recordsHistory(incognitoMode)) return@let
+            // KMK <--
 
             val chapterId = readerChapter.chapter.id!!
             val endTime = Date()
