@@ -46,7 +46,9 @@ class SourcePreferences(
     )
 
     fun lastUsedSource() = preferenceStore.getLong(
-        Preference.appStateKey("last_catalogue_source"),
+        // KMK -->
+        VaultSession.profileKey(Preference.appStateKey("last_catalogue_source")),
+        // KMK <--
         -1,
     )
 

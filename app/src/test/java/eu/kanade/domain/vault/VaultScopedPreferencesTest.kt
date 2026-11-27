@@ -30,6 +30,9 @@ class VaultScopedPreferencesTest {
         every { preferenceStore.getStringSet(any(), any()) } answers {
             preference<Set<String>>(firstArg())
         }
+        every { preferenceStore.getLong(any(), any()) } answers {
+            preference<Long>(firstArg())
+        }
     }
 
     @AfterEach
@@ -44,6 +47,7 @@ class VaultScopedPreferencesTest {
         BasePreferences(context, preferenceStore).incognitoMode().key() shouldBe "__APP_STATE_incognito_mode"
         SourcePreferences(preferenceStore).incognitoExtensions().key() shouldBe "incognito_extensions"
         SourcePreferences(preferenceStore).enabledLanguages().key() shouldBe "source_languages"
+        SourcePreferences(preferenceStore).lastUsedSource().key() shouldBe "__APP_STATE_last_catalogue_source"
         ExhPreferences(preferenceStore).ehIncognitoMode().key() shouldBe "eh_incognito_mode"
     }
 
@@ -54,16 +58,19 @@ class VaultScopedPreferencesTest {
         val incognitoKey = BasePreferences(context, preferenceStore).incognitoMode().key()
         val incognitoExtensionsKey = SourcePreferences(preferenceStore).incognitoExtensions().key()
         val languagesKey = SourcePreferences(preferenceStore).enabledLanguages().key()
+        val lastUsedSourceKey = SourcePreferences(preferenceStore).lastUsedSource().key()
         val ehIncognitoKey = ExhPreferences(preferenceStore).ehIncognitoMode().key()
 
         incognitoKey shouldBe "__APP_STATE_incognito_mode__vault"
         incognitoExtensionsKey shouldBe "incognito_extensions__vault"
         languagesKey shouldBe "source_languages__vault"
+        lastUsedSourceKey shouldBe "__APP_STATE_last_catalogue_source__vault"
         ehIncognitoKey shouldBe "eh_incognito_mode__vault"
 
         VaultSession.isVaultKey(incognitoKey) shouldBe true
         VaultSession.isVaultKey(incognitoExtensionsKey) shouldBe true
         VaultSession.isVaultKey(languagesKey) shouldBe true
+        VaultSession.isVaultKey(lastUsedSourceKey) shouldBe true
         VaultSession.isVaultKey(ehIncognitoKey) shouldBe true
     }
 
