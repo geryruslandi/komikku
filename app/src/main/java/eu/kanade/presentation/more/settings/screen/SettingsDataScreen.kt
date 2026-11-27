@@ -427,6 +427,9 @@ object SettingsDataScreen : SearchableSettings {
                 Preference.PreferenceItem.InfoPreference(
                     stringResource(KMR.strings.private_vault_active_info),
                 ),
+                Preference.PreferenceItem.InfoPreference(
+                    stringResource(KMR.strings.private_vault_auto_lock_info),
+                ),
                 Preference.PreferenceItem.CustomPreference(
                     title = stringResource(KMR.strings.private_vault_backup_restore),
                 ) {

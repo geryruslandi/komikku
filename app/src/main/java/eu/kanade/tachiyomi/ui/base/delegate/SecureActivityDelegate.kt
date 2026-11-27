@@ -9,6 +9,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.tachiyomi.core.security.SecurityPreferences
+import eu.kanade.tachiyomi.data.vault.VaultManager
 import eu.kanade.tachiyomi.ui.category.biometric.TimeRange
 import eu.kanade.tachiyomi.ui.security.UnlockActivity
 import eu.kanade.tachiyomi.ui.security.VaultUnlockActivity
@@ -137,6 +138,18 @@ class SecureActivityDelegateImpl : SecureActivityDelegate, DefaultLifecycleObser
     }
 
     override fun onResume(owner: LifecycleOwner) {
+        // KMK -->
+        // Fallback for the case where the screen turned off but the process never went through
+        // a full background stop (for example on a device without a keyguard).
+        if (VaultSession.isActive) {
+            if (VaultSession.shouldEndSessionOnForeground()) {
+                VaultSession.markSessionEnding()
+                VaultManager.lock(activity)
+                return
+            }
+            VaultSession.onAppForegrounded()
+        }
+        // KMK <--
         setVaultLock()
         setAppLock()
     }
@@ -158,6 +171,7 @@ class SecureActivityDelegateImpl : SecureActivityDelegate, DefaultLifecycleObser
     // KMK -->
     private fun setVaultLock() {
         if (!VaultSession.isActive) return
+        if (VaultSession.isSessionEnding) return
         if (!VaultSession.requiresAuth.value) return
         if (VaultSession.isAuthenticating) return
         if (activity is VaultUnlockActivity) return

@@ -14,14 +14,19 @@ import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import tachiyomi.core.common.Constants
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.domain.vault.service.VaultPreferences
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import kotlin.system.exitProcess
 
 /**
  * Switches between the standard library and the private vault.
  *
  * The switch itself is always done through an app restart: the database driver, cover cache and
- * download directory are selected once at startup from the persisted profile, so no query or
+ * download directory are selected once at startup from the one-shot handoff, so no query or
  * transaction can ever run against the wrong database.
+ *
+ * The vault is a process-scoped session. The persisted flag only covers the restart that enters
+ * the vault; any other process start (killed app, crash, reboot) returns to the standard library.
  */
 object VaultManager {
 
@@ -43,19 +48,38 @@ object VaultManager {
             !SyncDataJob.isRunning(context)
     }
 
+    /**
+     * Reads and clears the one-shot handoff written by [enter].
+     *
+     * Must only be called in the main app process, before the database driver is created.
+     */
+    fun consumePendingEnter(context: Context): Boolean {
+        val pending = Injekt.get<VaultPreferences>().pendingEnter().get()
+
+        // commit() instead of apply(): the handoff must not survive a process restart.
+        PreferenceManager.getDefaultSharedPreferences(context)
+            .edit(commit = true) {
+                putBoolean(Preference.appStateKey(VaultPreferences.KEY_PENDING_ENTER), false)
+                // Remove the persisted active flag used by builds before the one-shot handoff.
+                remove(Preference.appStateKey(LEGACY_ACTIVE_KEY))
+            }
+
+        return pending
+    }
+
     fun enter(context: Context) {
-        setActive(context, active = true)
+        setPendingEnter(context, pending = true)
     }
 
     fun lock(context: Context) {
-        setActive(context, active = false)
+        setPendingEnter(context, pending = false)
     }
 
-    private fun setActive(context: Context, active: Boolean) {
+    private fun setPendingEnter(context: Context, pending: Boolean) {
         // commit() instead of apply(): the process is killed right after this call.
         PreferenceManager.getDefaultSharedPreferences(context)
             .edit(commit = true) {
-                putBoolean(Preference.appStateKey(VaultPreferences.KEY_ACTIVE), active)
+                putBoolean(Preference.appStateKey(VaultPreferences.KEY_PENDING_ENTER), pending)
             }
 
         restart(context)
@@ -69,3 +93,5 @@ object VaultManager {
         exitProcess(0)
     }
 }
+
+private const val LEGACY_ACTIVE_KEY = "vault_active"

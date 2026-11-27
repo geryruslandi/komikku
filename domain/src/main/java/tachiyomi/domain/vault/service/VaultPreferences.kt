@@ -4,18 +4,20 @@ import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 
 /**
- * Persisted state of the private vault.
+ * Persisted handoff state for entering the private vault.
  *
- * The active profile is app state (not a user setting), so it is excluded from backups and is
- * only changed when the app restarts into the other profile.
+ * This is a one-shot flag, not the active profile: it is written before the app restarts into
+ * the vault and cleared as soon as the new process starts. Any other process start (killed app,
+ * crash, reboot, normal relaunch) must come back to the standard library, so the vault session
+ * never survives process death.
  */
 class VaultPreferences(
     private val preferenceStore: PreferenceStore,
 ) {
 
-    fun isActive() = preferenceStore.getBoolean(Preference.appStateKey(KEY_ACTIVE), false)
+    fun pendingEnter() = preferenceStore.getBoolean(Preference.appStateKey(KEY_PENDING_ENTER), false)
 
     companion object {
-        const val KEY_ACTIVE = "vault_active"
+        const val KEY_PENDING_ENTER = "vault_pending_enter"
     }
 }

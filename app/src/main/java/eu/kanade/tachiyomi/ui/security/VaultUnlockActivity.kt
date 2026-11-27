@@ -56,7 +56,8 @@ class VaultUnlockActivity : BaseActivity() {
 
         onBackPressedDispatcher.addCallback(this) {
             VaultSession.onAuthenticationDismissed()
-            finishAffinity()
+            // Leaving the entry prompt also leaves the vault session.
+            VaultManager.lock(this@VaultUnlockActivity)
         }
 
         setComposeContent {

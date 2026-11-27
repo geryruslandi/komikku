@@ -10,8 +10,10 @@ import android.content.IntentFilter
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Looper
+import android.os.PowerManager
 import android.webkit.WebView
 import androidx.core.content.ContextCompat
+import androidx.core.content.getSystemService
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -56,6 +58,7 @@ import eu.kanade.tachiyomi.data.coil.TachiyomiImageDecoder
 import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
+import eu.kanade.tachiyomi.data.vault.VaultManager
 import eu.kanade.tachiyomi.di.AppModule
 import eu.kanade.tachiyomi.di.PreferenceModule
 import eu.kanade.tachiyomi.di.SYPreferenceModule
@@ -93,7 +96,6 @@ import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.domain.vault.VaultSession
-import tachiyomi.domain.vault.service.VaultPreferences
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.widget.WidgetManager
 import timber.log.Timber
@@ -110,6 +112,16 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     private val privacyPreferences: PrivacyPreferences by injectLazy()
 
     private val disableIncognitoReceiver = DisableIncognitoReceiver()
+
+    // KMK -->
+    private val vaultScreenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                VaultSession.onScreenOff()
+            }
+        }
+    }
+    // KMK <--
 
     @SuppressLint("LaunchActivityFromNotification")
     override fun onCreate() {
@@ -138,9 +150,25 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
             if (packageName != process) WebView.setDataDirectorySuffix(process)
         }
 
+        // KMK -->
+        // Only the main process may consume the one-shot vault handoff. The :error_handler
+        // process must never start in the vault.
+        val isMainProcess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getProcessName() == packageName
+        } else {
+            true
+        }
+        // KMK <--
+
         Injekt.importModule(PreferenceModule(this))
         // KMK -->
-        VaultSession.init(Injekt.get<VaultPreferences>().isActive().get())
+        VaultSession.init(
+            if (isMainProcess) {
+                VaultManager.consumePendingEnter(this)
+            } else {
+                false
+            },
+        )
         // KMK <--
         Injekt.importModule(AppModule(this))
         Injekt.importModule(DomainModule())
@@ -169,6 +197,21 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         setupNotificationChannels()
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+
+        // KMK -->
+        // The vault session ends when the screen turns off, regardless of the trigger
+        // (screen timeout, power button, cover, ...). The actual switch to the standard
+        // library happens when the app next comes to the foreground.
+        // ACTION_SCREEN_OFF is a protected system broadcast, so exporting the receiver is safe.
+        if (isMainProcess) {
+            ContextCompat.registerReceiver(
+                this,
+                vaultScreenOffReceiver,
+                IntentFilter(Intent.ACTION_SCREEN_OFF),
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+        }
+        // KMK <--
 
         val scope = ProcessLifecycleOwner.get().lifecycleScope
 
@@ -325,6 +368,16 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     }
 
     override fun onStart(owner: LifecycleOwner) {
+        // KMK -->
+        if (VaultSession.isActive) {
+            if (VaultSession.shouldEndSessionOnForeground()) {
+                VaultSession.markSessionEnding()
+                VaultManager.lock(applicationContext)
+                return
+            }
+            VaultSession.onAppForegrounded()
+        }
+        // KMK <--
         SecureActivityDelegate.onApplicationStart()
 
         val syncPreferences: SyncPreferences = Injekt.get()
@@ -341,6 +394,11 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     override fun onStop(owner: LifecycleOwner) {
         // KMK -->
         VaultSession.onAppBackgrounded()
+        // Fallback for a deferred screen-off broadcast: stopping while the screen is already
+        // off also ends the vault session.
+        if (getSystemService<PowerManager>()?.isInteractive == false) {
+            VaultSession.onScreenOff()
+        }
         // KMK <--
         SecureActivityDelegate.onApplicationStopped()
 
